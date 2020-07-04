@@ -17,12 +17,24 @@ def api_get(base_url, api, parameters=None):
     if r.status_code == 200:
         return r.json()
     else:
+        print('GET request failed')
         print('Status:', r.status_code)
         print('Reason:', r.reason)
         print('Response text:', r.text)
         print('Requested URL:', r.url)
         print('\n\n')
         return None
+
+
+def api_post(base_url, api, token=None, parameters=None):
+    api_endpoint = urljoin(base_url, api)
+    headers = {'Content-Type': 'application/json',
+                }
+    if token:
+        headers['Authorization'] = token
+
+    post = requests.post(url=api_endpoint, headers=headers, json=parameters)
+    return post
 
 
 def dewpoint(temp, humidity):
@@ -39,11 +51,33 @@ def dewpoint(temp, humidity):
         ps = mag[ms][2] * math.exp((mag[ms][3] * temp)/(mag[ms][4] + temp))
         # Partial water vapor pressure
         pd = ps * (humidity / 100)
-        return (-math.log(pd / mag[ms][2]) * mag[ms][4]) / (math.log(pd / mag[ms][2]) - mag[ms][3])
+        return ((-math.log(pd / mag[ms][2]) * mag[ms][4])
+                / (math.log(pd / mag[ms][2]) - mag[ms][3])
+                )
     else:
         print(f"Temperature {temp} is out of range for dewpoint calculation.")
         return 999
 
+
+def wx_payload(weather):
+    payload = {}
+    payload['timestamp'] = datetime.utcfromtimestamp(int(weather['dt']))
+    payload['temperature'] = weather['main']['temp']
+    payload['dewpoint'] = round(
+        dewpoint(weather['main']['temp'],
+                 weather['main']['humidity'])
+        ,2)
+    payload['temp_uom'] = 'degC'
+    payload['wind_speed'] = weather['wind']['speed']
+    if 'gust' in weather['wind']:
+        payload['wind_gust'] = weather['wind']['gust']
+    payload['wind_uom'] = 'm/sec'
+    payload['wind_dir'] = weather['wind']['deg']
+    payload['dir_uom'] = 'degAngle'
+    payload['pressure'] = weather['main']['pressure']
+    payload['press_uom'] = 'mbar'
+    return payload
+ 
 
 if __name__ == "__main__":
     api = 'weather'
@@ -53,6 +87,10 @@ if __name__ == "__main__":
                       'lon': station[2],
                       'units': 'metric'}
         weather = api_get(s.wx_base, api, parameters)
+
+        if weather:
+            payload = wx_payload(weather)
+            payload['identifier'] = station[0]
 
         dewpt = round(
             dewpoint(weather['main']['temp'],
