@@ -147,7 +147,7 @@ if __name__ == "__main__":
             if not record_exists:
                 #Post station weather
                 post = api_post(s.endp_base, s.endp_data_add, s.api_token, payload)
-                print(f"{station[0]} posted new recored for {payload['timestamp']}")
+                print(f"{station[0]} posted new record for {payload['timestamp']}")
             else:
                 print(f"{station[0]} has existing record for {payload['timestamp']}")
 
