@@ -1,7 +1,7 @@
 import requests
 import json
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urljoin
 try:
     import dev_settings as s
@@ -9,10 +9,11 @@ except:
     import settings as s
 
 
-def api_get(base_url, api, parameters=None):
+def api_get(base_url, api, token=None, parameters=None):
     api_endpoint = urljoin(base_url, api)
-    headers = {'accept': 'application/json',
-               }
+    headers = {'accept': 'application/json'}
+    if token:
+        headers['Authorization'] = token
     r = requests.get(url=api_endpoint, headers=headers, params=parameters)
     if r.status_code == 200:
         return r.json()
@@ -33,8 +34,45 @@ def api_post(base_url, api, token=None, parameters=None):
     if token:
         headers['Authorization'] = token
 
-    post = requests.post(url=api_endpoint, headers=headers, json=parameters)
-    return post
+    p = requests.post(url=api_endpoint, headers=headers, json=parameters)
+    if p.status_code == 201:
+        return p
+    else:
+        print('POST request failed')
+        print('Status:', p.status_code)
+        print('Reason:', p.reason)
+        print('Response text:', p.text)
+        print('Requested URL:', p.url)
+        print('\n\n')
+        return None
+
+
+def station_list():
+    #returns a list of weather stations known by IOT endpoint
+    api_stations = api_get(s.endp_base, s.endp_station_list, s.api_token)
+    station_li = []
+    for station in api_stations:
+        station_li.append(station['identifier'])
+    return station_li
+    return st
+
+
+def create_station(station):
+    #Creates new weather station
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    payload = {'identifier': station[0],
+                'name': station[0],
+                'description': 'Added by OpenWeatherMapLogger.py ' + ts,
+                'latitude': station[1],
+                'longitude': station[2],
+                'type': 'Open Weather'}
+    response = api_post(s.endp_base, s.endp_station_add, s.api_token, payload)
+    if response.status_code == 201:
+        print(f"Wx Station created: {station[0]}")
+        return True
+    else:
+        print(f"Wx Station creation FAILED: {station[0]}")
+        return False
 
 
 def dewpoint(temp, humidity):
@@ -60,8 +98,9 @@ def dewpoint(temp, humidity):
 
 
 def wx_payload(weather):
+    ts = datetime.fromtimestamp(weather['dt'], tz=timezone.utc)
     payload = {}
-    payload['timestamp'] = datetime.utcfromtimestamp(int(weather['dt']))
+    payload['timestamp'] = ts.isoformat()
     payload['temperature'] = weather['main']['temp']
     payload['dewpoint'] = round(
         dewpoint(weather['main']['temp'],
@@ -80,35 +119,57 @@ def wx_payload(weather):
  
 
 if __name__ == "__main__":
-    api = 'weather'
+    api_stations = station_list()
     for station in s.wx_stations:
-        parameters = {'appid': s.api_token,
-                      'lat': station[1],
-                      'lon': station[2],
-                      'units': 'metric'}
-        weather = api_get(s.wx_base, api, parameters)
+        if station[0] in api_stations:
+            valid_station = True
+        else:
+            # Create new station
+            valid_station = create_station(station)
 
-        if weather:
-            payload = wx_payload(weather)
-            payload['identifier'] = station[0]
+        if valid_station:
+            # Get Open Weather weather data
+            parameters = {'appid': s.ow_app_token,
+                          'lat': station[1],
+                          'lon': station[2],
+                          'units': 'metric'}
+            weather = api_get(s.wx_base, 'weather', None, parameters)
+            if weather:
+                payload = wx_payload(weather)
+                payload['identifier'] = station[0]
 
-        dewpt = round(
-            dewpoint(weather['main']['temp'],
-                     weather['main']['humidity'])
-            ,2)
+            #Get current record from IOT api
+            cur = api_get(s.endp_base, s.endp_current_data + station[0], s.api_token)
+            record_exists = False
+            if len(cur) > 0:
+                cur_ts = cur[0]['timestamp'].replace('Z', '+00:00')
+                record_exists = (cur_ts == payload['timestamp'])
+            if not record_exists:
+                #Post station weather
+                post = api_post(s.endp_base, s.endp_data_add, s.api_token, payload)
+                print(f"{station[0]} posted new recored for {payload['timestamp']}")
+            else:
+                print(f"{station[0]} has existing record for {payload['timestamp']}")
 
-        dt_object = datetime.utcfromtimestamp(int(weather['dt']))
-        print(f"timestamp: {dt_object}")
-        print(f"identifier: {station[0]}")
-        print(f"temperature: {weather['main']['temp']}")
-        print(f"dewpoint: {dewpt}")
-        print(f"temp_uom: degC")
-        print(f"humidity: {weather['main']['humidity']}")
-        print(f"pressure: {weather['main']['pressure']}")
-        print(f"press_uom: mbar")
-        print(f"wind_speed: {weather['wind']['speed']}")
-        if 'gust' in weather['wind']:
-            print(f"wind_gust: {weather['wind']['gust']}")
-        print(f"wind_uom: m/sec")
-        print(f"wind_dir: {weather['wind']['deg']}")
-        print(f"dir_uom: degAngle")
+
+        #---- Print statements for testing - Comment out below code before deploying -----
+        #dewpt = round(
+        #    dewpoint(weather['main']['temp'],
+        #             weather['main']['humidity'])
+        #    ,2)
+
+        #dt_object = datetime.utcfromtimestamp(int(weather['dt']))
+        #print(f"timestamp: {dt_object}")
+        #print(f"identifier: {station[0]}")
+        #print(f"temperature: {weather['main']['temp']}")
+        #print(f"dewpoint: {dewpt}")
+        #print(f"temp_uom: degC")
+        #print(f"humidity: {weather['main']['humidity']}")
+        #print(f"pressure: {weather['main']['pressure']}")
+        #print(f"press_uom: mbar")
+        #print(f"wind_speed: {weather['wind']['speed']}")
+        #if 'gust' in weather['wind']:
+        #    print(f"wind_gust: {weather['wind']['gust']}")
+        #print(f"wind_uom: m/sec")
+        #print(f"wind_dir: {weather['wind']['deg']}")
+        #print(f"dir_uom: degAngle")
