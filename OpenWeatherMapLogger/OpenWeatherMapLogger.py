@@ -80,11 +80,12 @@ def dewpoint(temp, humidity):
     # table of Magnus coefficients for dew point calculation
     # [minTempC, maxTempC, C1(mbar), C2(-), C3(C)]
     mag = ((-50.9,0,6.1078,17.84362,254.425),(0,100,6.1078,17.08085,234.175))
+    ms = -1
     for i in range(2):
         if temp > mag[i][0] and temp <= mag[i][1]:
             ms = i
             break
-    if ms:
+    if ms >= 0:
         # Saturated water vapor pressure
         ps = mag[ms][2] * math.exp((mag[ms][3] * temp)/(mag[ms][4] + temp))
         # Partial water vapor pressure
